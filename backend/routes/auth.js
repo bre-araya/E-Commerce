@@ -1,64 +1,74 @@
-const express = require('express');
-const router = express.Router();
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const { protect } = require('../middleware/auth');
-const validate = require('../middleware/validate');
+const express      = require('express');
+const router       = express.Router();
+const crypto       = require('crypto');
+const User         = require('../models/User');
+const RefreshToken = require('../models/RefreshToken');
+const { protect }  = require('../middleware/auth');
+const { sendTokens, generateAccessToken } = require('../utils/auth');
+const validate     = require('../middleware/validate');
 const { registerRules, loginRules } = require('../middleware/validators');
-
-// Helper: sign JWT
-const signToken = (id) => {
-  const rawExp = process.env.JWT_EXPIRE || '1h';
-  let expiresIn = rawExp;
-
-  // If numeric string, normalize to number of seconds expected by jsonwebtoken.
-  // Heuristic: treat large numbers as milliseconds (e.g. 3600000) and convert to seconds.
-  if (/^\d+$/.test(String(rawExp))) {
-    const n = Number(rawExp);
-    expiresIn = n > 86400 ? Math.floor(n / 1000) : n; // convert ms->s if > 1 day (in seconds)
-  }
-
-  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn });
-};
-
-// Helper: send token response
-const sendToken = (user, statusCode, res) => {
-  const token = signToken(user._id);
-  res.status(statusCode).json({
-    success: true,
-    token,
-    user: {
-      id:    user._id,
-      name:  user.name,
-      email: user.email,
-      role:  user.role,
-    },
-  });
-};
 
 // ─── POST /api/auth/register ───────────────────────────────
 router.post('/register', registerRules, validate, async (req, res) => {
   const { name, email, password } = req.body;
+
+  const existing = await User.findOne({ email });
+  if (existing) {
+    return res.status(400).json({ success: false, message: 'Email already in use' });
+  }
+
   const user = await User.create({ name, email, password });
-  sendToken(user, 201, res);
+  await sendTokens(user, 201, res);
 });
 
 // ─── POST /api/auth/login ──────────────────────────────────
 router.post('/login', loginRules, validate, async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ success: false, message: 'Email and password are required' });
-  }
-
-  // Explicitly select password (it's hidden by default via select:false)
   const user = await User.findOne({ email }).select('+password');
-
   if (!user || !(await user.comparePassword(password))) {
     return res.status(401).json({ success: false, message: 'Invalid email or password' });
   }
 
-  sendToken(user, 200, res);
+  await sendTokens(user, 200, res);
+});
+
+// ─── POST /api/auth/refresh ────────────────────────────────
+// Called automatically by frontend when access token expires
+router.post('/refresh', async (req, res) => {
+  const token = req.cookies?.refreshToken;
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'No refresh token' });
+  }
+
+  // Find token in DB — if not found it was already used or deleted
+  const stored = await RefreshToken.findOne({ token }).populate('user');
+  if (!stored) {
+    return res.status(401).json({ success: false, message: 'Invalid refresh token' });
+  }
+
+  // Check if expired
+  if (stored.expiresAt < new Date()) {
+    await stored.deleteOne();
+    return res.status(401).json({ success: false, message: 'Refresh token expired, please login again' });
+  }
+
+  // Issue new access token
+  const accessToken = generateAccessToken(stored.user._id);
+  res.json({ success: true, accessToken });
+});
+
+// ─── POST /api/auth/logout ────────────────────────────────
+router.post('/logout', async (req, res) => {
+  const token = req.cookies?.refreshToken;
+
+  if (token) {
+    await RefreshToken.findOneAndDelete({ token }); // Remove from DB
+  }
+
+  res.clearCookie('refreshToken'); // Clear the cookie
+  res.json({ success: true, message: 'Logged out successfully' });
 });
 
 // ─── GET /api/auth/me ─────────────────────────────────────
@@ -87,8 +97,67 @@ router.put('/password', protect, async (req, res) => {
   }
 
   user.password = newPassword;
-  await user.save(); // triggers bcrypt pre-save hook
-  sendToken(user, 200, res);
+  await user.save();
+  await sendTokens(user, 200, res);
+});
+
+// ─── POST /api/auth/forgot-password ───────────────────────
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+
+  // Always respond the same — don't reveal if email exists
+  if (!user) {
+    return res.json({ success: true, message: 'If that email exists, a reset link was sent' });
+  }
+
+  // Generate reset token
+  const resetToken  = crypto.randomBytes(32).toString('hex');
+  const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+  user.resetPasswordToken  = hashedToken;
+  user.resetPasswordExpire = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+  await user.save({ validateBeforeSave: false });
+
+  // In production: send email with reset link
+  // For now: return token directly for testing
+  const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+  console.log('🔑 Reset URL (dev only):', resetUrl);
+
+  res.json({
+    success: true,
+    message: 'If that email exists, a reset link was sent',
+    ...(process.env.NODE_ENV === 'development' && { resetUrl }), // Only expose in dev
+  });
+});
+
+// ─── POST /api/auth/reset-password/:token ─────────────────
+router.post('/reset-password/:token', async (req, res) => {
+  const { password } = req.body;
+
+  if (!password || password.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+  }
+
+  // Hash the token from URL to compare with stored hash
+  const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+
+  const user = await User.findOne({
+    resetPasswordToken:  hashedToken,
+    resetPasswordExpire: { $gt: new Date() }, // Must not be expired
+  });
+
+  if (!user) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
+  }
+
+  // Set new password and clear reset fields
+  user.password            = password;
+  user.resetPasswordToken  = undefined;
+  user.resetPasswordExpire = undefined;
+  await user.save();
+
+  await sendTokens(user, 200, res);
 });
 
 module.exports = router;

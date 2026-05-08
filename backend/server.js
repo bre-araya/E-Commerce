@@ -13,6 +13,7 @@ const productRoutes = require('./routes/products');
 const cartRoutes   = require('./routes/cart');
 const orderRoutes  = require('./routes/orders');
 const errorHandler = require('./middleware/error');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 
@@ -47,6 +48,7 @@ const authLimiter = rateLimit({
 });
 
 app.use(express.json());
+app.use(cookieParser());
 app.use(morgan('dev')); // Logs every request: method, route, status, time
 
 // ─── Routes ───────────────────────────────────────────────
