@@ -17,6 +17,7 @@ const adminUsersRoutes = require('./routes/adminUsers');
 const errorHandler = require('./middleware/error');
 const cookieParser = require('cookie-parser');
 const seedIfMissingAdmin = require('./utils/seedIfMissingAdmin');
+const path = require('path');
 
 
 const app = express();
@@ -29,8 +30,8 @@ if (!process.env.MONGO_URI) {
   console.warn('⚠️ MONGO_URI is not set. Check backend/.env');
 }
 
-
-
+// Serve uploaded product images locally for localhost development
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ─── Global Middleware ─────────────────────────────────────
 app.use(helmet());

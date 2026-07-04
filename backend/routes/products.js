@@ -4,7 +4,9 @@ const Product    = require('../models/Product');
 const { protect, adminOnly } = require('../middleware/auth');
 const validate   = require('../middleware/validate');
 const { productRules, reviewRules } = require('../middleware/validators');
-const { upload, cloudinary } = require('../config/cloudinary');
+const { upload, uploadDir } = require('../config/cloudinary');
+const fs = require('fs');
+const path = require('path');
 const Order = require('../models/Order');
 
 const parseSpecifications = (value) => {
@@ -94,10 +96,10 @@ router.post(
   productRules,
   validate,
   async (req, res) => {
-    // req.files is populated by Multer after successful Cloudinary upload
+    const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
     const images = req.files?.map((file) => ({
-      url:       file.path,      // Permanent Cloudinary HTTPS URL
-      public_id: file.filename,  // Used later to delete from Cloudinary
+      url: `${baseUrl}/uploads/products/${file.filename}`,
+      public_id: file.filename,
     })) || [];
 
     const payload = {
@@ -124,18 +126,19 @@ router.put(
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    // Only replace images if user uploaded new ones
     if (req.files?.length > 0) {
-      // Delete every existing image from Cloudinary first
       for (const img of product.images) {
         if (img.public_id) {
-          await cloudinary.uploader.destroy(img.public_id);
+          const fullPath = path.join(uploadDir, img.public_id);
+          if (fs.existsSync(fullPath)) {
+            fs.unlinkSync(fullPath);
+          }
         }
       }
 
-      // Replace with new uploaded images
+      const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
       req.body.images = req.files.map((file) => ({
-        url:       file.path,
+        url: `${baseUrl}/uploads/products/${file.filename}`,
         public_id: file.filename,
       }));
     }
@@ -161,12 +164,12 @@ router.delete('/:id', protect, adminOnly, async (req, res) => {
     return res.status(404).json({ success: false, message: 'Product not found' });
   }
 
-  // Delete all associated images from Cloudinary before removing product
-  // WHY: If we delete the DB record first and Cloudinary fails,
-  // we get orphaned images with no way to track them
   for (const img of product.images) {
     if (img.public_id) {
-      await cloudinary.uploader.destroy(img.public_id);
+      const fullPath = path.join(uploadDir, img.public_id);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
     }
   }
 

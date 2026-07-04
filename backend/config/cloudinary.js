@@ -1,40 +1,33 @@
-const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
 
-// Connect to Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+const uploadDir = path.join(__dirname, '..', 'uploads', 'products');
 
-// Define where and how to store uploaded files
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder:         'ecommerce/products', // folder name in your Cloudinary account
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp','pdf', 'csv', 'xlsx'],
-    transformation: [{ width: 800, height: 800, crop: 'limit' }], // auto-resize
+fs.mkdirSync(uploadDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    cb(null, uniqueName);
   },
 });
 
-// Strict Multer setup
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB max per file
-    files: 10,                   // max 10 images per product
+    fileSize: 5 * 1024 * 1024,
+    files: 10,
   },
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp','file/pdf', 'file/csv', 'file/xlsx'];
-
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
     if (!allowed.includes(file.mimetype)) {
-      // Reject the file
-      return cb(new Error('Only jpg, jpeg, png, webp images are allowed'), false);
+      return cb(new Error('Only JPG, JPEG, PNG, and WEBP images are allowed'), false);
     }
-    cb(null, true); // Accept the file
+    cb(null, true);
   },
 });
 
-module.exports = { upload, cloudinary };
+module.exports = { upload, uploadDir };
