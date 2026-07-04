@@ -34,7 +34,8 @@ exports.sendTokens = async (user, statusCode, res) => {
 
   res.status(statusCode).json({
     success:     true,
-    accessToken, // Frontend stores this in memory only
+    accessToken, // Backwards-compatible key
+    token: accessToken, // Frontend expects `token` in several places
     user: {
       id:    user._id,
       name:  user.name,

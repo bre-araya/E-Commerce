@@ -5,6 +5,25 @@ const { protect, adminOnly } = require('../middleware/auth');
 const validate   = require('../middleware/validate');
 const { productRules, reviewRules } = require('../middleware/validators');
 const { upload, cloudinary } = require('../config/cloudinary');
+const Order = require('../models/Order');
+
+const parseSpecifications = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.filter((item) => item && (item.key?.trim() || item.value?.trim()));
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed)
+        ? parsed.filter((item) => item && (item.key?.trim() || item.value?.trim()))
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
 
 // ─── GET /api/products — list with search, filter, pagination ─
 router.get('/', async (req, res) => {
@@ -81,8 +100,12 @@ router.post(
       public_id: file.filename,  // Used later to delete from Cloudinary
     })) || [];
 
-    // Merge uploaded images into the product body
-    const product = await Product.create({ ...req.body, images });
+    const payload = {
+      ...req.body,
+      images,
+      specifications: parseSpecifications(req.body.specifications),
+    };
+    const product = await Product.create(payload);
     res.status(201).json({ success: true, product });
   }
 );
@@ -101,10 +124,9 @@ router.put(
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    // Only replace images if admin uploaded new ones
+    // Only replace images if user uploaded new ones
     if (req.files?.length > 0) {
       // Delete every existing image from Cloudinary first
-      // WHY: Cloudinary charges for storage — orphaned images cost money
       for (const img of product.images) {
         if (img.public_id) {
           await cloudinary.uploader.destroy(img.public_id);
@@ -116,6 +138,10 @@ router.put(
         url:       file.path,
         public_id: file.filename,
       }));
+    }
+
+    if (req.body.specifications !== undefined) {
+      req.body.specifications = parseSpecifications(req.body.specifications);
     }
 
     const updated = await Product.findByIdAndUpdate(
@@ -177,6 +203,80 @@ router.post('/:id/reviews', protect, reviewRules, validate, async (req, res) => 
   await product.save();
 
   res.status(201).json({ success: true, message: 'Review submitted successfully' });
+});
+
+// ─── POST /api/products/import-csv — import products from CSV or JSON array (admin)
+router.post('/import-csv', protect, adminOnly, async (req, res) => {
+  // Accept either raw CSV text in req.body.csv or JSON array in req.body.products
+  const csv = req.body.csv;
+  const productsArray = req.body.products;
+
+  if (!csv && !Array.isArray(productsArray)) {
+    return res.status(400).json({ success: false, message: 'No CSV or products provided' });
+  }
+
+  const rows = [];
+  if (csv) {
+    const lines = csv.split(/\r?\n/).filter(Boolean);
+    const headers = lines.shift().split(',').map(h => h.trim());
+    for (const line of lines) {
+      const cols = line.split(',');
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = cols[i] ? cols[i].trim() : ''; });
+      rows.push(obj);
+    }
+  } else {
+    for (const p of productsArray) rows.push(p);
+  }
+
+  const created = [];
+  for (const r of rows) {
+    try {
+      const doc = await Product.create({
+        name: r.name || 'Unnamed',
+        description: r.description || '',
+        price: Number(r.price) || 0,
+        category: r.category || 'Other',
+        stock: Number(r.stock) || 0,
+        featured: r.featured === 'true' || r.featured === true,
+        images: r.image ? [{ url: r.image }] : [],
+      });
+      created.push(doc);
+    } catch (err) {
+      // skip invalid rows
+      console.error('Import product failed', err.message);
+    }
+  }
+
+  res.json({ success: true, created: created.length });
+});
+
+// ─── GET /api/products/export/products.csv — export products as CSV (admin)
+router.get('/export/products', protect, adminOnly, async (req, res) => {
+  const products = await Product.find().limit(10000);
+  const headers = ['_id','name','description','price','category','stock','featured','image'];
+  const lines = [headers.join(',')];
+  for (const p of products) {
+    const row = [p._id, p.name, (p.description||'').replace(/,/g, ' '), p.price, p.category, p.stock, p.featured, p.images[0]?.url||''];
+    lines.push(row.join(','));
+  }
+  const csv = lines.join('\n');
+  res.header('Content-Type', 'text/csv');
+  res.attachment('products.csv').send(csv);
+});
+
+// ─── GET /api/products/export/orders.csv — export orders as CSV (admin)
+router.get('/export/orders', protect, adminOnly, async (req, res) => {
+  const orders = await Order.find().populate('user', 'name email').limit(10000);
+  const headers = ['_id','userName','userEmail','itemsCount','itemsPrice','shippingPrice','totalPrice','status','createdAt'];
+  const lines = [headers.join(',')];
+  for (const o of orders) {
+    const row = [o._id, o.user?.name||'', o.user?.email||'', o.items.length, o.itemsPrice, o.shippingPrice, o.totalPrice, o.status, o.createdAt.toISOString()];
+    lines.push(row.join(','));
+  }
+  const csv = lines.join('\n');
+  res.header('Content-Type', 'text/csv');
+  res.attachment('orders.csv').send(csv);
 });
 
 module.exports = router;

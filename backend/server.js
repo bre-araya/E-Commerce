@@ -12,13 +12,25 @@ const authRoutes   = require('./routes/auth');
 const productRoutes = require('./routes/products');
 const cartRoutes   = require('./routes/cart');
 const orderRoutes  = require('./routes/orders');
+const paymentRoutes = require('./routes/payments');
+const adminUsersRoutes = require('./routes/adminUsers');
 const errorHandler = require('./middleware/error');
 const cookieParser = require('cookie-parser');
+const seedIfMissingAdmin = require('./utils/seedIfMissingAdmin');
+
 
 const app = express();
 
 // ─── Connect Database ──────────────────────────────────────
 connectDB();
+
+// Warn loudly when MONGO_URI is missing (login will fail with 401 because DB won't connect)
+if (!process.env.MONGO_URI) {
+  console.warn('⚠️ MONGO_URI is not set. Check backend/.env');
+}
+
+
+
 
 // ─── Global Middleware ─────────────────────────────────────
 app.use(helmet());
@@ -31,7 +43,7 @@ app.use(
 
 // Global rate limiter
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 1 * 60 * 1000, // 1 minutes
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
@@ -40,7 +52,7 @@ app.use(apiLimiter);
 
 // Stricter limiter for auth endpoints (prevent brute-force)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 1 * 60 * 1000,
   max: 10,
   message: { success: false, message: 'Too many auth attempts, please try again later' },
   standardHeaders: true,
@@ -56,6 +68,9 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cart',     cartRoutes);
 app.use('/api/orders',   orderRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/admin/users', adminUsersRoutes);
+
 
 // ─── Health Check ─────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -70,7 +85,13 @@ app.use((req, res) => {
 // ─── Global Error Handler (must be last) ──────────────────
 app.use(errorHandler);
 
+// Ensure seeded admin exists (dev quality-of-life)
+seedIfMissingAdmin().catch((e) => console.error('Seed admin/product failed', e));
+
+
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });
+

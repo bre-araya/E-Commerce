@@ -14,7 +14,7 @@ const storage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder:         'ecommerce/products', // folder name in your Cloudinary account
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp','pdf', 'csv', 'xlsx'],
     transformation: [{ width: 800, height: 800, crop: 'limit' }], // auto-resize
   },
 });
@@ -27,7 +27,7 @@ const upload = multer({
     files: 10,                   // max 10 images per product
   },
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp','file/pdf', 'file/csv', 'file/xlsx'];
 
     if (!allowed.includes(file.mimetype)) {
       // Reject the file

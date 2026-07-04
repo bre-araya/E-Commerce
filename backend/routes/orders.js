@@ -9,7 +9,7 @@ const { protect, adminOnly } = require('../middleware/auth');
 
 // ─── POST /api/orders — place order from cart
 router.post('/', protect, orderRules, validate, async (req, res) => {
-  const { shippingAddress, paymentMethod, notes } = req.body;
+  const { shippingAddress, paymentMethod, notes, paymentIntentId } = req.body;
 
   // Get user's cart
   const cart = await Cart.findOne({ user: req.user._id });
@@ -34,6 +34,7 @@ router.post('/', protect, orderRules, validate, async (req, res) => {
     })),
     shippingAddress,
     paymentMethod,
+    paymentIntentId,
     itemsPrice,
     shippingPrice,
     totalPrice,
@@ -50,13 +51,53 @@ router.post('/', protect, orderRules, validate, async (req, res) => {
   // Clear the cart after order placed
   await Cart.findOneAndDelete({ user: req.user._id });
 
-  res.status(201).json({ success: true, order });
+    // Generate invoice PDF and send order confirmation email in background
+    try {
+      const { generateInvoiceBuffer } = require('../utils/invoice');
+      const { enqueue } = require('../utils/worker');
+      const invoiceBuffer = await generateInvoiceBuffer(
+        // Populate user for invoice
+        await order.populate('user', 'name email').execPopulate?.() || (await Order.findById(order._id).populate('user', 'name email'))
+      );
+
+      // Enqueue email send task with attachment
+      enqueue({
+        type: 'sendEmail',
+        payload: {
+          to: req.user.email,
+          subject: `Order Confirmation - ${order._id}`,
+          text: `Thanks for your order! Order ID: ${order._id}`,
+          attachments: [
+            { filename: `invoice_${order._id}.pdf`, content: invoiceBuffer },
+          ],
+        },
+      });
+    } catch (err) {
+      console.error('Failed to generate/send invoice', err);
+    }
+
+    res.status(201).json({ success: true, order });
 });
 
 // ─── GET /api/orders/my — user's order history
 router.get('/my', protect, async (req, res) => {
   const orders = await Order.find({ user: req.user._id }).sort('-createdAt');
   res.json({ success: true, orders });
+});
+
+// ─── GET /api/orders — all orders (admin only)
+// Must come BEFORE /:id route so Express matches this first
+router.get('/', protect, adminOnly, async (req, res) => {
+  const { status, page = 1, limit = 20 } = req.query;
+  const query = status ? { status } : {};
+  const total  = await Order.countDocuments(query);
+  const orders = await Order.find(query)
+    .populate('user', 'name email')
+    .sort('-createdAt')
+    .limit(Number(limit))
+    .skip((Number(page) - 1) * Number(limit));
+
+  res.json({ success: true, total, orders });
 });
 
 // ─── GET /api/orders/:id — single order detail
@@ -70,20 +111,6 @@ router.get('/:id', protect, async (req, res) => {
   }
 
   res.json({ success: true, order });
-});
-
-// ─── GET /api/orders — all orders (admin)
-router.get('/', protect, adminOnly, async (req, res) => {
-  const { status, page = 1, limit = 20 } = req.query;
-  const query = status ? { status } : {};
-  const total  = await Order.countDocuments(query);
-  const orders = await Order.find(query)
-    .populate('user', 'name email')
-    .sort('-createdAt')
-    .limit(Number(limit))
-    .skip((Number(page) - 1) * Number(limit));
-
-  res.json({ success: true, total, orders });
 });
 
 // ─── PUT /api/orders/:id/status — update status (admin)

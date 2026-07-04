@@ -14,6 +14,11 @@ exports.registerRules = [
   body('password')
     .notEmpty().withMessage('Password is required')
     .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+
+  // role is optional; admin permission will be enforced in the controller
+  body('role')
+    .optional()
+    .isIn(['admin', 'user']).withMessage('Invalid role'),
 ];
 
 exports.loginRules = [

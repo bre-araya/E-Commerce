@@ -48,7 +48,15 @@ const productSchema = new mongoose.Schema(
     ratings:    { type: Number, default: 0 },
     numReviews: { type: Number, default: 0 },
     reviews:    [reviewSchema],
+    specifications: {
+      type: [{
+        key: { type: String, trim: true },
+        value: { type: String, trim: true },
+      }],
+      default: [],
+    },
     featured:   { type: Boolean, default: false },
+    // (No owner field) — products are global unless extended later
   },
   { timestamps: true }
 );

@@ -29,6 +29,10 @@ const orderSchema = new mongoose.Schema(
       enum: ['Cash on Delivery', 'Credit Card', 'Mobile Money'],
       default: 'Cash on Delivery',
     },
+    // Stripe PaymentIntent id (if using card payments)
+    paymentIntentId: { type: String },
+    // Payment status: 'Pending' (default) or 'Paid'
+    paymentStatus: { type: String, enum: ['Pending', 'Approve', 'Paid'], default: 'Pending' },
     itemsPrice:    { type: Number, required: true },
     shippingPrice: { type: Number, required: true, default: 0 },
     totalPrice:    { type: Number, required: true },

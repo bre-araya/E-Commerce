@@ -44,6 +44,18 @@ npm run dev
 ## Environment Variables
 See `.env` for all required variables.
 
+## Email & Invoice (new)
+Set these env vars to enable sending emails and generating invoices:
+
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE` (optional)
+- `EMAIL_FROM` (optional)
+
+This adds:
+- `utils/invoice.js` — generates PDF invoice for each order
+- `utils/email.js` — sends email via SMTP (falls back to console in dev)
+- `utils/worker.js` — simple background worker that enqueues email sends
+
+
 
 Backend is Now Officially Done
 Here's what we built and verified:

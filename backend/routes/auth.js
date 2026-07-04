@@ -3,21 +3,30 @@ const router       = express.Router();
 const crypto       = require('crypto');
 const User         = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
+const jwt          = require('jsonwebtoken');
 const { protect }  = require('../middleware/auth');
 const { sendTokens, generateAccessToken } = require('../utils/auth');
+const { sendMail } = require('../utils/email');
 const validate     = require('../middleware/validate');
 const { registerRules, loginRules } = require('../middleware/validators');
 
 // ─── POST /api/auth/register ───────────────────────────────
 router.post('/register', registerRules, validate, async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, role } = req.body;
 
   const existing = await User.findOne({ email });
   if (existing) {
     return res.status(400).json({ success: false, message: 'Email already in use' });
   }
 
-  const user = await User.create({ name, email, password });
+  const user = await User.create({
+
+    name,
+    email,
+    password,
+    role: role || 'user',
+  });
+
   await sendTokens(user, 201, res);
 });
 
@@ -158,6 +167,44 @@ router.post('/reset-password/:token', async (req, res) => {
   await user.save();
 
   await sendTokens(user, 200, res);
+});
+
+// ─── POST /api/auth/send-verify — send verification email with token
+router.post('/send-verify', async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+  if (!user) return res.json({ success: true, message: 'If that email exists, a verification link was sent' });
+
+  const verifyToken = crypto.randomBytes(32).toString('hex');
+  const hashed = crypto.createHash('sha256').update(verifyToken).digest('hex');
+  user.verifyToken = hashed;
+  user.verifyTokenExpire = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+  await user.save({ validateBeforeSave: false });
+
+  const verifyUrl = `${process.env.CLIENT_URL}/verify-email/${verifyToken}`;
+  // Send email (non-blocking)
+  sendMail({
+    to: user.email,
+    subject: 'Verify your account',
+    text: `Verify your account: ${verifyUrl}`,
+    html: `<p>Verify your account by clicking <a href="${verifyUrl}">here</a></p>`,
+  }).catch(err => console.error('Failed to send verify email', err));
+
+  res.json({ success: true, message: 'If that email exists, a verification link was sent' });
+});
+
+// ─── GET /api/auth/verify/:token — verify email token
+router.get('/verify/:token', async (req, res) => {
+  const hashed = crypto.createHash('sha256').update(req.params.token).digest('hex');
+  const user = await User.findOne({ verifyToken: hashed, verifyTokenExpire: { $gt: new Date() } });
+  if (!user) return res.status(400).json({ success: false, message: 'Invalid or expired verification token' });
+
+  user.isVerified = true;
+  user.verifyToken = undefined;
+  user.verifyTokenExpire = undefined;
+  await user.save({ validateBeforeSave: false });
+
+  res.json({ success: true, message: 'Email verified successfully' });
 });
 
 module.exports = router;

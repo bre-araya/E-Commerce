@@ -7,6 +7,42 @@ const { protect } = require('../middleware/auth');
 // All cart routes require login
 router.use(protect);
 
+// ─── POST /api/cart/sync — merge client cart with server cart (login sync)
+router.post('/sync', async (req, res) => {
+  const items = Array.isArray(req.body.items) ? req.body.items : [];
+
+  let cart = await Cart.findOne({ user: req.user._id });
+  if (!cart) {
+    cart = await Cart.create({ user: req.user._id, items: [] });
+  }
+
+  for (const it of items) {
+    if (!it || !it.product) continue;
+
+    const product = await Product.findById(it.product);
+    if (!product) continue; // skip invalid products
+
+    const qty = Math.max(1, Math.min(Number(it.quantity) || 1, product.stock));
+
+    const existing = cart.items.find((i) => i.product.toString() === it.product);
+    if (existing) {
+      existing.quantity = Math.min(product.stock, existing.quantity + qty);
+    } else {
+      cart.items.push({
+        product: product._id,
+        name: product.name,
+        price: product.price,
+        image: product.images[0]?.url,
+        quantity: qty,
+      });
+    }
+  }
+
+  await cart.save();
+  cart = await cart.populate('items.product', 'name price images stock');
+  res.json({ success: true, cart });
+});
+
 // ─── GET /api/cart
 router.get('/', async (req, res) => {
   const cart = await Cart.findOne({ user: req.user._id }).populate('items.product', 'name price images stock');
