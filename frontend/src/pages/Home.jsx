@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { FiArrowRight, FiFilter, FiHeadphones, FiSearch, FiShield, FiStar, FiTruck, FiZap } from 'react-icons/fi';
+import { FiArrowRight, FiClipboard, FiFilter, FiHeadphones, FiPackage, FiSearch, FiShield, FiShoppingCart, FiStar, FiTruck, FiUser, FiZap } from 'react-icons/fi';
 import api from '../utils/axios';
 import ProductCard from '../components/product/ProductCard';
 import Spinner from '../components/common/Spinner';
+import { useAuth } from '../context/AuthContext';
 
 const CATEGORIES = ['All', 'Electronics', 'Clothing', 'Books', 'Home', 'Sports', 'Beauty', 'Other'];
 
@@ -54,6 +55,7 @@ const categoryCards = [
 
 export default function Home() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
 
   const [products, setProducts] = useState([]);
   const [featured, setFeatured] = useState([]);
@@ -63,6 +65,8 @@ export default function Home() {
   const keyword = searchParams.get('keyword') || '';
   const category = searchParams.get('category') || '';
   const page = Number(searchParams.get('page')) || 1;
+  const isAuthenticated = Boolean(user);
+  const showLanding = !isAuthenticated && !keyword && !category;
 
   useEffect(() => {
     api.get('/products/featured')
@@ -96,7 +100,7 @@ export default function Home() {
 
   return (
     <div className="bg-gray-50">
-      {!keyword && !category && (
+      {showLanding && (
         <>
           <section className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-primary-800 to-primary-600 text-white">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.2),_transparent_40%)]" />
@@ -252,84 +256,86 @@ export default function Home() {
       )}
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 font-medium text-gray-600">
-            <FiFilter size={18} />
-            <span>Filter:</span>
-          </div>
+        <div className="flex-1">
+          <div className="mb-6 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 font-medium text-gray-600">
+              <FiFilter size={18} />
+              <span>Filter:</span>
+            </div>
 
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => updateFilter('category', cat === 'All' ? '' : cat)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                (cat === 'All' && !category) || category === cat
-                  ? 'bg-primary-600 text-white'
-                  : 'border border-gray-200 bg-white text-gray-600 hover:border-primary-300'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        {(keyword || category) && (
-          <div className="mb-6 flex gap-2">
-            <input
-              type="text"
-              placeholder="Search products..."
-              defaultValue={keyword}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') updateFilter('keyword', e.target.value);
-              }}
-              className="input-field max-w-sm"
-            />
-          </div>
-        )}
-
-        <h2 className="mb-6 text-2xl font-bold text-gray-800">
-          {keyword ? `Results for "${keyword}"` : category ? `${category} Products` : 'All Products'}
-        </h2>
-
-        {loading ? (
-          <Spinner />
-        ) : products.length === 0 ? (
-          <div className="py-20 text-center">
-            <p className="mb-4 text-6xl text-gray-400">🔍</p>
-            <p className="text-lg text-gray-500">No products found</p>
-            <button onClick={() => setSearchParams({})} className="btn-primary mt-4">
-              Clear Filters
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {products.map((product) => (
-              <ProductCard key={product._id} product={product} />
-            ))}
-          </div>
-        )}
-
-        {totalPages > 1 && (
-          <div className="mt-10 flex justify-center gap-2">
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+            {CATEGORIES.map((cat) => (
               <button
-                key={p}
-                onClick={() => {
-                  const next = new URLSearchParams(searchParams);
-                  next.set('page', p);
-                  setSearchParams(next);
-                }}
-                className={`h-10 w-10 rounded-lg font-medium transition-colors ${
-                  page === p
+                key={cat}
+                onClick={() => updateFilter('category', cat === 'All' ? '' : cat)}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  (cat === 'All' && !category) || category === cat
                     ? 'bg-primary-600 text-white'
                     : 'border border-gray-200 bg-white text-gray-600 hover:border-primary-300'
                 }`}
               >
-                {p}
+                {cat}
               </button>
             ))}
           </div>
-        )}
+
+          {(keyword || category) && (
+            <div className="mb-6 flex gap-2">
+              <input
+                type="text"
+                placeholder="Search products..."
+                defaultValue={keyword}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') updateFilter('keyword', e.target.value);
+                }}
+                className="input-field max-w-sm"
+              />
+            </div>
+          )}
+
+          <h2 className="mb-6 text-2xl font-bold text-gray-800">
+            {keyword ? `Results for "${keyword}"` : category ? `${category} Products` : 'All Products'}
+          </h2>
+
+          {loading ? (
+            <Spinner />
+          ) : products.length === 0 ? (
+            <div className="py-20 text-center">
+              <p className="mb-4 text-6xl text-gray-400">🔍</p>
+              <p className="text-lg text-gray-500">No products found</p>
+              <button onClick={() => setSearchParams({})} className="btn-primary mt-4">
+                Clear Filters
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+              {products.map((product) => (
+                <ProductCard key={product._id} product={product} />
+              ))}
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="mt-10 flex justify-center gap-2">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set('page', p);
+                    setSearchParams(next);
+                  }}
+                  className={`h-10 w-10 rounded-lg font-medium transition-colors ${
+                    page === p
+                      ? 'bg-primary-600 text-white'
+                      : 'border border-gray-200 bg-white text-gray-600 hover:border-primary-300'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -81,9 +81,12 @@ export default function Navbar() {
                   onClick={() => setDropOpen(!dropOpen)}
                   className="flex items-center gap-2 text-gray-700 hover:text-primary-600"
                 >
-                  <div className="bg-primary-100 text-primary-700 rounded-full
-                    h-8 w-8 flex items-center justify-center font-semibold text-sm">
-                    {user.name.charAt(0).toUpperCase()}
+                  <div className="h-8 w-8 overflow-hidden rounded-full border border-primary-100 bg-primary-100 text-primary-700 flex items-center justify-center font-semibold text-sm">
+                    {user?.avatar ? (
+                      <img src={user.avatar} alt={user.name} className="h-full w-full object-cover" />
+                    ) : (
+                      user?.name?.charAt(0).toUpperCase() || 'U'
+                    )}
                   </div>
                   <span className="hidden md:block font-medium text-sm">{user.name}</span>
                 </button>

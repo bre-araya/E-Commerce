@@ -1,6 +1,8 @@
 const express      = require('express');
 const router       = express.Router();
 const crypto       = require('crypto');
+const path         = require('path');
+const fs           = require('fs');
 const User         = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
 const jwt          = require('jsonwebtoken');
@@ -9,6 +11,7 @@ const { sendTokens, generateAccessToken } = require('../utils/auth');
 const { sendMail } = require('../utils/email');
 const validate     = require('../middleware/validate');
 const { registerRules, loginRules } = require('../middleware/validators');
+const { upload, uploadDir } = require('../config/cloudinary');
 
 // ─── POST /api/auth/register ───────────────────────────────
 router.post('/register', registerRules, validate, async (req, res) => {
@@ -86,13 +89,36 @@ router.get('/me', protect, async (req, res) => {
 });
 
 // ─── PUT /api/auth/profile ────────────────────────────────
-router.put('/profile', protect, async (req, res) => {
-  const { name, avatar } = req.body;
-  const user = await User.findByIdAndUpdate(
-    req.user._id,
-    { name, avatar },
-    { new: true, runValidators: true }
-  );
+router.put('/profile', protect, upload.single('avatar'), async (req, res) => {
+  const { name } = req.body;
+  let avatar = req.body.avatar || '';
+
+  if (req.file) {
+    const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+    avatar = `${baseUrl}/uploads/products/${req.file.filename}`;
+  }
+
+  if (req.body.avatar === '' && !req.file) {
+    avatar = '';
+  }
+
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+
+  if (user.avatar && user.avatar !== avatar && user.avatar.includes('/uploads/')) {
+    const oldName = user.avatar.split('/').pop();
+    const oldPath = path.join(uploadDir, oldName);
+    if (fs.existsSync(oldPath)) {
+      fs.unlinkSync(oldPath);
+    }
+  }
+
+  user.name = name || user.name;
+  user.avatar = avatar;
+  await user.save();
+
   res.json({ success: true, user });
 });
 

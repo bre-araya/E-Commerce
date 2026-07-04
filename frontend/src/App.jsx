@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Navbar          from './components/common/Navbar';
 import Footer          from './components/common/Footer';
 import ProtectedRoute  from './components/common/ProtectedRoute';
+import StoreLayout     from './components/common/StoreLayout';
 
 // Pages
 import Home            from './pages/Home';
@@ -31,20 +32,18 @@ export default function App() {
         <main className="flex-1">
           <Routes>
             {/* Public routes — anyone can access */}
-            <Route path="/"            element={<Home />} />
-            <Route path="/products/:id" element={<ProductDetail />} />
-            <Route path="/login"       element={<LoginPage />} />
-            <Route path="/register"    element={<RegisterPage />} />
+            <Route path="/" element={<StoreLayout><Home /></StoreLayout>} />
+            <Route path="/products/:id" element={<StoreLayout><ProductDetail /></StoreLayout>} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
             <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
 
             {/* Protected routes — must be logged in */}
-            {/* Also routes shown for admin are in the admin route block below */}
             <Route element={<ProtectedRoute />}>
-
-              <Route path="/cart"     element={<CartPage />} />
-              <Route path="/checkout" element={<CheckoutPage />} />
-              <Route path="/orders"   element={<OrdersPage />} />
-              <Route path="/profile"  element={<ProfilePage />} />
+              <Route path="/cart" element={<StoreLayout><CartPage /></StoreLayout>} />
+              <Route path="/checkout" element={<StoreLayout><CheckoutPage /></StoreLayout>} />
+              <Route path="/orders" element={<StoreLayout><OrdersPage /></StoreLayout>} />
+              <Route path="/profile" element={<StoreLayout><ProfilePage /></StoreLayout>} />
             </Route>
 
             {/* Admin routes — must be logged in + admin role */}
